@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diamond Hands</title>
+<style>
+:root{--bg:#0b1410;--panel:#12201a;--line:#1f3a2c;--green:#3ddc84;--gold:#c9a227;--text:#e6f4ea;--muted:#9fb8a8}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 15%,#16302a,var(--bg) 62%);color:var(--text);font-family:system-ui,Arial,sans-serif;display:flex;justify-content:center}
+.game{width:100%;max-width:420px;padding:20px 16px 32px;text-align:center;user-select:none}
+h1{margin:0;color:var(--green);font-size:26px;letter-spacing:.5px}
+.sub{color:var(--gold);font-size:13px;margin:2px 0 14px}
+.stats{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+.cash{font-size:38px;font-weight:700}
+.rates{color:var(--muted);font-size:14px;margin-top:4px}
+.gem-wrap{position:relative;height:230px;display:flex;align-items:center;justify-content:center}
+#gem{font-size:120px;line-height:1;background:none;border:0;cursor:pointer;filter:drop-shadow(0 0 22px rgba(38,198,218,.6));transition:transform .08s;animation:pulse 2.6s ease-in-out infinite}
+#gem:active{transform:scale(.88)}
+@keyframes pulse{50%{filter:drop-shadow(0 0 38px rgba(38,198,218,.95))}}
+.pop{position:absolute;top:60px;color:var(--green);font-weight:700;font-size:20px;pointer-events:none;animation:rise .8s forwards}
+@keyframes rise{to{transform:translateY(-60px);opacity:0}}
+.shop{display:grid;gap:10px}
+.up{display:flex;justify-content:space-between;align-items:center;text-align:left;background:var(--panel);color:var(--text);border:1px solid var(--gold);border-radius:12px;padding:12px 14px;font-size:16px;font-weight:600;cursor:pointer;width:100%}
+.up small{display:block;color:var(--muted);font-weight:400;font-size:13px;margin-top:2px}
+.up .cost{color:var(--gold);font-weight:700}
+.up:disabled{opacity:.4;border-color:var(--line);cursor:not-allowed}
+.up:not(:disabled):hover{background:#17291f}
+.up:focus-visible,#gem:focus-visible{outline:2px solid var(--green);outline-offset:3px}
+.foot{margin-top:18px;color:var(--muted);font-size:12px}
+.foot button{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:12px}
+@media (prefers-reduced-motion:reduce){#gem{animation:none}.pop{animation-duration:.01s}}
+</style>
+</head>
+<body>
+<main class="game">
+  <h1>Diamond Hands</h1>
+  <div class="sub">Hold the line. Stack the cash.</div>
+
+  <div class="stats">
+    <div class="cash" id="cash">$0</div>
+    <div class="rates"><span id="pc">1</span> per click &nbsp;|&nbsp; <span id="ps">0</span> per second</div>
+  </div>
+
+  <div class="gem-wrap" id="wrap">
+    <button id="gem" aria-label="Click the diamond to earn cash">💎</button>
+  </div>
+
+  <div class="shop" id="shop"></div>
+
+  <div class="foot">Progress saves automatically on this device. <button id="reset">Reset game</button></div>
+</main>
+
+<script>
+// ---- Upgrades: edit these to change the game ----
+const UPGRADES = [
+  { id: "steel",   name: "Steel Hands",    desc: "+1 per click",   base: 20,    type: "click", val: 1 },
+  { id: "auto",    name: "Auto Clicker",   desc: "+1 per second",  base: 100,   type: "sec",   val: 1 },
+  { id: "gold",    name: "Gold Hands",     desc: "+5 per click",   base: 500,   type: "click", val: 5 },
+  { id: "intern",  name: "Trading Intern", desc: "+8 per second",  base: 1000,  type: "sec",   val: 8 },
+  { id: "diamond", name: "Diamond Hands",  desc: "+50 per click",  base: 10000, type: "click", val: 50 }
+];
+const COST_GROWTH = 1.25;   // each level costs 25% more
+const KEY = "diamondHandsSave";
+
+let state = { cash: 0, levels: {} };
+
+// ---- Save / load ----
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(KEY));
+    if (s && typeof s.cash === "number") state = { cash: s.cash, levels: s.levels || {} };
+  } catch (e) {}
+}
+
+// ---- Math ----
+const level = id => state.levels[id] || 0;
+const cost = u => Math.ceil(u.base * Math.pow(COST_GROWTH, level(u.id)));
+function perClick() {
+  return 1 + UPGRADES.filter(u => u.type === "click").reduce((t, u) => t + u.val * level(u.id), 0);
+}
+function perSec() {
+  return UPGRADES.filter(u => u.type === "sec").reduce((t, u) => t + u.val * level(u.id), 0);
+}
+function fmt(n) {
+  n = Math.floor(n);
+  return n >= 1e6 ? new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 2 }).format(n) : n.toLocaleString("en");
+}
+
+// ---- Screen ----
+const shop = document.getElementById("shop");
+function buildShop() {
+  shop.innerHTML = "";
+  UPGRADES.forEach(u => {
+    const b = document.createElement("button");
+    b.className = "up";
+    b.id = "up-" + u.id;
+    b.addEventListener("click", () => buy(u));
+    shop.appendChild(b);
+  });
+}
+function render() {
+  document.getElementById("cash").textContent = "$" + fmt(state.cash);
+  document.getElementById("pc").textContent = fmt(perClick());
+  document.getElementById("ps").textContent = fmt(perSec());
+  UPGRADES.forEach(u => {
+    const b = document.getElementById("up-" + u.id);
+    const c = cost(u);
+    b.innerHTML = `<span>${u.name} <small>${u.desc} &middot; Level ${level(u.id)}</small></span><span class="cost">$${fmt(c)}</span>`;
+    b.disabled = state.cash < c;
+  });
+}
+
+// ---- Actions ----
+function clickGem() {
+  const gain = perClick();
+  state.cash += gain;
+  const pop = document.createElement("div");
+  pop.className = "pop";
+  pop.textContent = "+" + fmt(gain);
+  pop.style.left = (40 + Math.random() * 20) + "%";
+  document.getElementById("wrap").appendChild(pop);
+  setTimeout(() => pop.remove(), 800);
+  render();
+}
+function buy(u) {
+  const c = cost(u);
+  if (state.cash >= c) {
+    state.cash -= c;
+    state.levels[u.id] = level(u.id) + 1;
+    save();
+    render();
+  }
+}
+
+document.getElementById("gem").addEventListener("click", clickGem);
+document.getElementById("reset").addEventListener("click", () => {
+  if (confirm("Reset all progress? This can't be undone.")) {
+    state = { cash: 0, levels: {} };
+    save();
+    render();
+  }
+});
+
+// ---- Game loop: runs 10 times a second so cash grows smoothly ----
+setInterval(() => {
+  const s = perSec();
+  if (s > 0) { state.cash += s / 10; render(); }
+}, 100);
+setInterval(save, 5000);
+
+load();
+buildShop();
+render();
+</script>
+</body>
+</html>
